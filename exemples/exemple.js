@@ -4,42 +4,37 @@ const Connector = require("../src");
 
 const { apiKey, apiSecret } = process.env;
 
-const client = new Connector(apiKey, apiSecret);
-
-const formatter = require('../src/helpers/formatter');
+const binanceClient = new Connector(apiKey, apiSecret);
 
 (async () => {
 
-    await client.connect();
+    await binanceClient.connect();
 
-    console.log(client.locals.exchangeInfo)
+    console.log(binanceClient.locals.exchangeInfo);
 
-    await client.streamMarginUserData();
+    binanceClient.locals.margin.openOrders()
 
-    client.marginUserData().on("executionReport", (data) => {
-        console.log(client.locals.margin.openOrders('SLPETH'));
+    await binanceClient.streamMarginUserData();
+
+    binanceClient.bookTickerWS('SLPETH', {
+        open: () => console.log('bookTicker open !'),
+        close: () => console.log('bookTicker closed !'),
+        message: (data) => {
+
+            let json = JSON.parse(data);
+            let { u: updateId, s: symbol, b: bidPrice, B: bidQuantity, a: askPrice, A: askQuantity } = json;
+            let bookTicker = { updateId, symbol, bidPrice, bidQuantity, askPrice, askQuantity };
+
+            console.log(bookTicker);
+        }
     });
 
-    client.marginUserData().on("outboundAccountPosition", () => {
-        console.log(client.locals.margin.balance('SLP'));
+    binanceClient.marginUserData().on("executionReport", (data) => {
+        console.log(binanceClient.locals.margin.openOrders('SLPETH'));
     });
 
-    client.marginUserData().on("open", async () => {
-
-        let symbol = 'SLPETH';
-        let side = 'SELL';
-        let type = 'LIMIT';
-
-        let options = {
-            quantity: '2000',
-            price: '0.00000268',
-            timeInForce: 'GTC'
-        };
-
-        var order = await client.newMarginOrder(symbol, side, type, options);
-
-        //console.log(order);
-
+    binanceClient.marginUserData().on("outboundAccountPosition", () => {
+        console.log(binanceClient.locals.margin.balance('SLP'));
     });
 
 })();

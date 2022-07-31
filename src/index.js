@@ -47,6 +47,16 @@ class Connector {
             }
         }
 
+        if (methodName == 'cancelMarginOrder') {
+            return async (...args) => {
+                let response = await this.client[methodName](...args);
+                let { data } = response;
+                let order = formatter.formatCanceledMarginOrder(data);
+                this.locals.margin.orders = updater.updateOrders(this.locals.margin.orders, order);
+                return data;
+            }
+        }
+
         return async (...args) => {
             let response = await this.client[methodName](...args);
             let { data } = response;
@@ -121,7 +131,7 @@ class Connector {
             this.locals.margin.updateTime = data.lastAccountUpdate;
             this.locals.margin.balances = updater.updateBalances(this.locals.margin.balances, data);
         });
-        
+
         return this.marginUserData();
     };
 }
