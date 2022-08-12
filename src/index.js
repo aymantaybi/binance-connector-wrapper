@@ -39,21 +39,29 @@ class Connector {
 
         if (methodName == 'newMarginOrder') {
             return async (...args) => {
-                let response = await this.client[methodName](...args);
-                let { data } = response;
-                let order = formatter.formatNewMarginOrder(data);
-                this.locals.margin.orders = updater.updateOrders(this.locals.margin.orders, order);
-                return data;
+                try {
+                    let response = await this.client[methodName](...args);
+                    let { data } = response;
+                    let order = formatter.formatNewMarginOrder(data);
+                    this.locals.margin.orders = updater.updateOrders(this.locals.margin.orders, order);
+                    return data;
+                } catch (error) {
+                    console.log(error.message);
+                }
             }
         }
 
         if (methodName == 'cancelMarginOrder') {
             return async (...args) => {
-                let response = await this.client[methodName](...args);
-                let { data } = response;
-                let order = formatter.formatCanceledMarginOrder(data);
-                this.locals.margin.orders = updater.updateOrders(this.locals.margin.orders, order);
-                return data;
+                try {
+                    let response = await this.client[methodName](...args);
+                    let { data } = response;
+                    let order = formatter.formatCanceledMarginOrder(data);
+                    this.locals.margin.orders = updater.updateOrders(this.locals.margin.orders, order);
+                    return data;
+                } catch (error) {
+                    console.log(error.message);
+                }
             }
         }
 
