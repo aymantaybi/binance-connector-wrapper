@@ -14,7 +14,7 @@ class Connector {
 
     constructor(apiKey, apiSecret) {
 
-        this.client = new Spot(apiKey, apiSecret);
+        this.client = new Spot(apiKey, apiSecret, { timeout: 10000 });
         this.client.reconnectDelay = 0;
 
         this.locals = new Locals();

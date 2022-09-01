@@ -34,7 +34,7 @@ class UserData {
                 this.close();
                 this.open(createListenKeyFunctionName, renewListenKeyFunctionName);
             });
-        }, 30 * 60 * 1000);
+        }, 10 * 1000);
 
     };
 
