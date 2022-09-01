@@ -24,6 +24,8 @@ class UserData {
 
         let { data: { listenKey } } = await this.client[createListenKeyFunctionName]();
 
+        console.log(`Listen key created ${listenKey}`);
+
         this.wsRef = this.client.userData(listenKey, this.callbacks);
 
         this.intervalId = setInterval(() => {
@@ -32,7 +34,7 @@ class UserData {
                 this.close();
                 this.open(createListenKeyFunctionName, renewListenKeyFunctionName);
             });
-        }, 10 * 1000);
+        }, 30 * 60 * 1000);
 
     };
 
