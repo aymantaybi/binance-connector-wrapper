@@ -1,102 +1,94 @@
-const { Spot } = require('@binance/connector');
+const { Spot } = require("@binance/connector");
 
-const modules = require('@binance/connector/src/modules');
+const modules = require("@binance/connector/src/modules");
 
-const APIBase = require('@binance/connector/src/APIBase');
+const APIBase = require("@binance/connector/src/APIBase");
 
-const UserData = require('./userData');
+const UserData = require("./userData");
 
-const Locals = require('./locals');
+const Locals = require("./locals");
 
-const { formatter, updater } = require('./helpers');
+const { formatter, updater } = require("./helpers");
 
 class Connector {
+  constructor(apiKey, apiSecret, options) {
+    this.client = new Spot(apiKey, apiSecret, options);
+    this.client.reconnectDelay = 0;
 
-    constructor(apiKey, apiSecret) {
+    this.locals = new Locals();
 
-        this.client = new Spot(apiKey, apiSecret, { timeout: 10000 });
-        this.client.reconnectDelay = 0;
+    this.userDataStream = {
+      spot: null,
+      margin: null,
+      isolatedMargin: null,
+    };
 
-        this.locals = new Locals();
+    for (let moduleName of Object.keys(modules)) {
+      let methodsName = Object.getOwnPropertyNames(modules[moduleName](APIBase).prototype);
 
-        this.userDataStream = {
-            spot: null,
-            margin: null,
-            isolatedMargin: null
-        };
+      for (let methodName of methodsName) {
+        this[methodName] = this.createCustomMethod(methodName);
+      }
+    }
+  }
 
-        for (let moduleName of Object.keys(modules)) {
-
-            let methodsName = Object.getOwnPropertyNames(modules[moduleName](APIBase).prototype);
-
-            for (let methodName of methodsName) {
-                this[methodName] = this.createCustomMethod(methodName);
-            }
+  createCustomMethod(methodName) {
+    if (methodName == "newMarginOrder") {
+      return async (...args) => {
+        try {
+          let response = await this.client[methodName](...args);
+          let { data } = response;
+          let order = formatter.formatNewMarginOrder(data);
+          this.locals.margin.orders = updater.updateOrders(this.locals.margin.orders, order);
+          return data;
+        } catch (error) {
+          console.log(error.message);
         }
+      };
     }
 
-    createCustomMethod(methodName) {
-
-        if (methodName == 'newMarginOrder') {
-            return async (...args) => {
-                try {
-                    let response = await this.client[methodName](...args);
-                    let { data } = response;
-                    let order = formatter.formatNewMarginOrder(data);
-                    this.locals.margin.orders = updater.updateOrders(this.locals.margin.orders, order);
-                    return data;
-                } catch (error) {
-                    console.log(error.message);
-                }
-            }
+    if (methodName == "cancelMarginOrder") {
+      return async (...args) => {
+        try {
+          let response = await this.client[methodName](...args);
+          let { data } = response;
+          let order = formatter.formatCanceledMarginOrder(data);
+          this.locals.margin.orders = updater.updateOrders(this.locals.margin.orders, order);
+          return data;
+        } catch (error) {
+          console.log(error.message);
         }
-
-        if (methodName == 'cancelMarginOrder') {
-            return async (...args) => {
-                try {
-                    let response = await this.client[methodName](...args);
-                    let { data } = response;
-                    let order = formatter.formatCanceledMarginOrder(data);
-                    this.locals.margin.orders = updater.updateOrders(this.locals.margin.orders, order);
-                    return data;
-                } catch (error) {
-                    console.log(error.message);
-                }
-            }
-        }
-
-        return async (...args) => {
-            let response = await this.client[methodName](...args);
-            let { data } = response;
-            return data;
-        }
+      };
     }
 
-    async connect() {
-
-        let [{ data: apiPermissions }, { data: exchangeInfo }] = await Promise.all([
-            this.client.apiPermissions(),
-            this.client.exchangeInfo()
-        ]);
-
-        [this.locals.apiPermissions, this.locals.exchangeInfo] = [apiPermissions, exchangeInfo];
+    return async (...args) => {
+      let response = await this.client[methodName](...args);
+      let { data } = response;
+      return data;
     };
+  }
 
-    async streamUserData(createListenKeyFunctionName, renewListenKeyFunctionName) {
-        let userData = new UserData(this.client);
-        await userData.open(createListenKeyFunctionName, renewListenKeyFunctionName);
-        return userData;
-    };
+  async connect() {
+    let [{ data: apiPermissions }, { data: exchangeInfo }] = await Promise.all([this.client.apiPermissions(), this.client.exchangeInfo()]);
 
-    spotUserData() {
-        return this.userDataStream.spot;
-    };
+    [this.locals.apiPermissions, this.locals.exchangeInfo] = [apiPermissions, exchangeInfo];
+  }
 
-    marginUserData() {
-        return this.userDataStream.margin;
-    };
+  async streamUserData(createListenKeyFunctionName, renewListenKeyFunctionName) {
+    let userData = new UserData(this.client);
+    await userData.open(createListenKeyFunctionName, renewListenKeyFunctionName);
+    return userData;
+  }
 
-    /* async streamSpotUserData() {
+  spotUserData() {
+    return this.userDataStream.spot;
+  }
+
+  marginUserData() {
+    return this.userDataStream.margin;
+  }
+
+  /* async streamSpotUserData() {
         let response = await this.client.account();
         let data = response;
         let { data: { balances, updateTime } } = data;
@@ -116,32 +108,33 @@ class Connector {
         return this.spotUserData();
     } */
 
-    async streamMarginUserData() {
+  async streamMarginUserData() {
+    let [
+      {
+        data: { userAssets },
+      },
+      { data: openOrders },
+    ] = await Promise.all([this.client.marginAccount(), this.client.marginOpenOrders()]);
 
-        let [{ data: { userAssets } }, { data: openOrders }] = await Promise.all([
-            this.client.marginAccount(),
-            this.client.marginOpenOrders()
-        ]);
+    this.locals.margin.orders = openOrders;
 
-        this.locals.margin.orders = openOrders;
+    if (!this.locals.margin.updateTime || !this.locals.margin.balances.length) {
+      this.locals.margin.updateTime = Date.now();
+      this.locals.margin.balances = userAssets.map((userAsset) => ({ asset: userAsset.asset, free: userAsset.free, locked: userAsset.locked }));
+    }
+    this.userDataStream.margin = await this.streamUserData("createMarginListenKey", "renewMarginListenKey");
+    this.userDataStream.margin.on("executionReport", (data) => {
+      let order = formatter.formatMarginOrderExecutionReport(data);
+      this.locals.margin.orders = updater.updateOrders(this.locals.margin.orders, order);
+    });
+    this.userDataStream.margin.on("outboundAccountPosition", (data) => {
+      if (data.lastAccountUpdate < this.locals.margin.updateTime) return;
+      this.locals.margin.updateTime = data.lastAccountUpdate;
+      this.locals.margin.balances = updater.updateBalances(this.locals.margin.balances, data);
+    });
 
-        if (!this.locals.margin.updateTime || !this.locals.margin.balances.length) {
-            this.locals.margin.updateTime = Date.now();
-            this.locals.margin.balances = userAssets.map(userAsset => ({ asset: userAsset.asset, free: userAsset.free, locked: userAsset.locked }));
-        }
-        this.userDataStream.margin = await this.streamUserData("createMarginListenKey", "renewMarginListenKey");
-        this.userDataStream.margin.on("executionReport", (data) => {
-            let order = formatter.formatMarginOrderExecutionReport(data);
-            this.locals.margin.orders = updater.updateOrders(this.locals.margin.orders, order);
-        });
-        this.userDataStream.margin.on("outboundAccountPosition", (data) => {
-            if (data.lastAccountUpdate < this.locals.margin.updateTime) return;
-            this.locals.margin.updateTime = data.lastAccountUpdate;
-            this.locals.margin.balances = updater.updateBalances(this.locals.margin.balances, data);
-        });
-
-        return this.marginUserData();
-    };
+    return this.marginUserData();
+  }
 }
 
 module.exports = Connector;
